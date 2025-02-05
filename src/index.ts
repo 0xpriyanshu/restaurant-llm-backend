@@ -14,17 +14,20 @@ import openAiRoutes from './routes/openai';
 dotenv.config({ path: '.env.local' });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-    origin: ['https://restaurant-llm-framework.vercel.app'],
+    origin: 'https://restaurant-llm-framework.vercel.app',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 
 app.use(express.json());
 
+
+const PORT = process.env.PORT || 3000;
 
 // 1) CREATE a new Restaurant (POST)
 app.post('/api/restaurants', async (req, res) => {
