@@ -1,17 +1,15 @@
-// src/server/models/Restaurant.ts
+// models/Restaurant.ts
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IRestaurant extends Document {
-  // Our custom UUID (string)
-  restaurantId: string;
-
+  restaurantId: string;  
   name: string;
   contactNo: string;
   address: string;
   menuSummary: string;
   location?: {
     type: 'Point';
-    coordinates: [number, number]; // [lng, lat]
+    coordinates: [number, number];
   };
   isOnline: boolean;
   menuUploaded: boolean;
@@ -40,7 +38,7 @@ const restaurantSchema = new Schema<IRestaurant>(
         default: 'Point',
       },
       coordinates: {
-        type: [Number], // [longitude, latitude]
+        type: [Number],
       },
     },
     isOnline: { type: Boolean, default: false },
@@ -49,5 +47,4 @@ const restaurantSchema = new Schema<IRestaurant>(
   { timestamps: true }
 );
 
-export default mongoose.models.Restaurant ||
-  mongoose.model<IRestaurant>('Restaurant', restaurantSchema);
+export default mongoose.models.Restaurant || mongoose.model<IRestaurant>('Restaurant', restaurantSchema);

@@ -1,5 +1,4 @@
-// src/server/routes/menu.ts
-
+// routes/menu.ts
 import express from 'express';
 import Restaurant from '../models/Restaurant';
 import RestaurantMenu from '../models/Menu';
@@ -7,24 +6,34 @@ import RestaurantMenu from '../models/Menu';
 const router = express.Router();
 
 /**
- * GET /restaurants/:restaurantId/menu
- * Fetch the single RestaurantMenu document (including items with inline customisation).
+ * GET /restaurants/:id/menu
+ * Fetch the menu using numeric ID
  */
-router.get('/restaurants/:restaurantId/menu', async (req, res) => {
+router.get('/restaurants/:id/menu', async (req, res) => {
   try {
-    const { restaurantId } = req.params;
+    const { id } = req.params;
+    let restaurant;
 
-    // Ensure the restaurant exists
-    const restaurant = await Restaurant.findOne({ restaurantId });
+    // Check if using numeric id
+    if (req.app.locals.restaurantIdMap?.has(id)) {
+      const originalId = req.app.locals.restaurantIdMap.get(id);
+      restaurant = await Restaurant.findOne({ restaurantId: originalId });
+    } else {
+      restaurant = await Restaurant.findOne({ restaurantId: id });
+    }
+
     if (!restaurant) {
       return res.status(404).json({
         success: false,
-        error: `Restaurant not found with ID: ${restaurantId}`,
+        error: `Restaurant not found with ID: ${id}`,
       });
     }
 
-    // Fetch the menu for this restaurant
-    const menu = await RestaurantMenu.findOne({ restaurantId });
+    // Fetch menu using the internal UUID
+    const menu = await RestaurantMenu.findOne({ 
+      restaurantId: restaurant.restaurantId 
+    });
+
     if (!menu) {
       return res.status(404).json({
         success: false,
@@ -32,11 +41,30 @@ router.get('/restaurants/:restaurantId/menu', async (req, res) => {
       });
     }
 
+    // Get numeric ID for response
+    let numericId;
+    if (req.app.locals.restaurantIdMap) {
+      for (const [key, value] of req.app.locals.restaurantIdMap.entries()) {
+        if (value === restaurant.restaurantId) {
+          numericId = parseInt(key);
+          break;
+        }
+      }
+    }
+
     return res.json({
       success: true,
       data: {
-        restaurant,
-        menu, // Contains items with their inline customisation
+        restaurant: {
+          id: numericId,
+          name: restaurant.name,
+          menuSummary: restaurant.menuSummary,
+          location: restaurant.location
+        },
+        menu: {
+          ...menu.toObject(),
+          restaurantId: numericId // Replace UUID with numeric ID in response
+        }
       },
     });
   } catch (error: any) {
@@ -50,31 +78,33 @@ router.get('/restaurants/:restaurantId/menu', async (req, res) => {
 });
 
 /**
- * PUT /restaurants/:restaurantId/menu
- * Upserts a single RestaurantMenu document with items that each have their own customisation property.
- * If a menu item does not have a customisation provided by the frontend, it will default to { categories: [] }.
+ * PUT /restaurants/:id/menu
+ * Update menu using numeric ID
  */
-router.put('/restaurants/:restaurantId/menu', async (req, res) => {
+router.put('/restaurants/:id/menu', async (req, res) => {
   try {
-    const { restaurantId } = req.params;
-    // The frontend sends an object with two properties: menuItems and customisations.
-    // If customisations are omitted for an item, that's fine.
+    const { id } = req.params;
     const { menuItems = [], customisations = [] } = req.body;
+    let restaurant;
 
-    // Ensure the restaurant exists
-    const restaurant = await Restaurant.findOne({ restaurantId });
-    if (!restaurant) {
-      throw new Error(`Restaurant not found with ID: ${restaurantId}`);
+    // Check if using numeric id
+    if (req.app.locals.restaurantIdMap?.has(id)) {
+      const originalId = req.app.locals.restaurantIdMap.get(id);
+      restaurant = await Restaurant.findOne({ restaurantId: originalId });
+    } else {
+      restaurant = await Restaurant.findOne({ restaurantId: id });
     }
 
-    // Merge customisations into each menu item.
-    // For each item, we try to find a corresponding customisation (based on the item's id)
-    // If not found, we default to an empty customisation: { categories: [] }.
+    if (!restaurant) {
+      throw new Error(`Restaurant not found with ID: ${id}`);
+    }
+
+    // Process menu items
     const mergedItems = menuItems.map((item: any) => {
       const found = customisations.find((c: any) => c.id === item.id);
       return {
         ...item,
-        id: Number(item.id), // Ensure id is a number
+        id: Number(item.id),
         price: Number(item.price || 0),
         spicinessLevel: Number(item.spicinessLevel || 0),
         sweetnessLevel: Number(item.sweetnessLevel || 0),
@@ -86,22 +116,20 @@ router.put('/restaurants/:restaurantId/menu', async (req, res) => {
           : [],
         caffeineLevel: String(item.caffeineLevel || 'None'),
         image: String(item.image || ''),
-        // If customisation is provided in the customisations array, use it; otherwise default to empty.
         customisation: found ? found.customisation : { categories: [] },
       };
     });
 
-    // Build the full menu document
+    // Create menu document using internal UUID
     const menuDoc = {
-      restaurantId,
+      restaurantId: restaurant.restaurantId, // Use internal UUID
       restaurantName: restaurant.name,
       items: mergedItems,
       lastUpdated: new Date(),
     };
 
-    // Upsert (create or update) the RestaurantMenu document
     const updatedMenu = await RestaurantMenu.findOneAndUpdate(
-      { restaurantId },
+      { restaurantId: restaurant.restaurantId },
       { $set: menuDoc },
       {
         new: true,
@@ -111,10 +139,34 @@ router.put('/restaurants/:restaurantId/menu', async (req, res) => {
       }
     );
 
+    // Get numeric ID for response
+    let numericId;
+    if (req.app.locals.restaurantIdMap) {
+      for (const [key, value] of req.app.locals.restaurantIdMap.entries()) {
+        if (value === restaurant.restaurantId) {
+          numericId = parseInt(key);
+          break;
+        }
+      }
+    }
+
+    // Update restaurant's menuUploaded status
+    await Restaurant.findOneAndUpdate(
+      { restaurantId: restaurant.restaurantId },
+      { menuUploaded: true }
+    );
+
     return res.json({
       success: true,
       message: 'Menu updated successfully',
-      data: updatedMenu,
+      data: {
+        ...updatedMenu.toObject(),
+        restaurantId: numericId, // Return numeric ID instead of UUID
+        items: updatedMenu.items.map(item => ({
+          ...item.toObject(),
+          restaurantId: numericId // Replace UUID with numeric ID in items if needed
+        }))
+      },
     });
   } catch (error: any) {
     console.error('Error updating menu:', error);
